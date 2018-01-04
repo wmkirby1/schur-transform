@@ -1,0 +1,38 @@
+\documentclass[12pt]{article}
+\usepackage{fancyhdr,amsfonts,amsthm,amsmath,xspace,cleveref,hyperref,parskip}
+\usepackage[left=1in,top=1in,right=1in,bottom=1in]{geometry}
+
+\pagestyle{fancy}
+
+\lhead{README for schur-transform}
+\renewcommand{\headrulewidth}{0.4pt}
+\renewcommand{\headwidth}{\textwidth}
+\renewcommand{\footrulewidth}{0pt}
+
+\begin{document}
+
+Computes an efficient quantum algorithm for the quantum Schur transform on $n$ qubits.
+
+The quantum algorithm is returned as a list of $O(n^3)$ two-level operations in matrix form.
+These could each be decomposed into $O(n\log(n/\epsilon))$ Clifford+T operators using a universal unitary decomposition algorithm such as given in \href{arXiv:1306.3200}{arXiv:1306.3200}, for a total operation count of $O(n^4\log(n/\epsilon))$ and overall error bounded by $\epsilon$.
+
+Runs with Mathematica 10+.
+
+The quantum algorithm uses $2\lfloor\log_2(n)\rfloor-1$ ancillary qubits for a total register of $n+2\lfloor\log_2(n)\rfloor-1$ qubits.
+The Schur transform maps the standard computational basis to a basis composed of a direct sum of irreducible modules for the unitary and symmetric groups.
+Equivalently, it maps individual spin eigenvectors to eigenvectors of the composite spin for the whole register.
+
+We assume that the initial register written as a vector has form $$(\text{ancillary qubits})\otimes(\text{computational qubits})$$.
+The output vector will be organized by subspaces with distinct values of composite total spin.
+An auxiliary algorithm to calculate the locations of the output states is provided.
+
+The main procedure in ``Schur Transform.nb" is \emph{SchurDecomp[n]}, which returns a list of $O(n^3)$ elements with form $entry_i=\{t_i,R_i,b_i\}$.
+Each $R_i$ is a two-level rotation such that $\prod_i\textbf{I}_{2^{t_i}}\otimes R_i\otimes\textbf{I}_{2^{b_i}}$ gives the Schur transform ($\textbf{I}_d$ is the identity matrix of dimension $d$).
+
+To calculate the vector entries used to encode the output states, run \emph{SchurIndices[n]}.
+The output is a list of the vector entries used to encode the output states.
+
+Alternatively (and likely more usefully), \emph{SchurIndicesMap[n]} returns an association (map) that takes the key $\{s,k,m_s\}$ to the output entry used to encode the state with spin-projection $m_s$ in the $k$th copy of the spin-$s$ subspace.
+For example, $$\textbf{SchurIndicesMap}[3][\{3/2,1,1/2\}]$$ will return $2$, the index of the state with spin-projection $1/2$ in the $1$st copy of the spin-$3/2$ subspace.
+
+\end{document}
