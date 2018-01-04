@@ -1,4 +1,6 @@
 # schur-transform
+INCOMPLETE REPOSITORY
+
 Computes an efficient quantum algorithm for the quantum Schur transform on $n$ qubits.
 
 Runs with Mathematica 10.4+.
