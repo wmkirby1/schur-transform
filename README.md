@@ -1,5 +1,5 @@
 # schur-transform
-INCOMPLETE REPOSITORY
+INCOMPLETE
 
 Computes an efficient quantum algorithm for the quantum Schur transform on $n$ qubits.
 
