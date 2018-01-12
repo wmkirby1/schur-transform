@@ -21,6 +21,7 @@ Thus 'j,l,m' refers to a specific basis state in the output of the Schur transfo
 
 import math
 import numpy as np
+import scipy.sparse as sp
 import matplotlib.pyplot as plt
 
 # Returns the lowering operator on a composite system composed of two subsystems: one with dimension d, and the other with dimension 2.
@@ -184,16 +185,16 @@ def givens(u):
     # Get two-level rotations to reduce v to diagonal:
     for i in range(1,d): # Iterate over lower triangle in v.
         for j in range(i):
-            if not v[i][j]==0: # If current entry in v is not already zero...
+            if not v[i,j]==0: # If current entry in v is not already zero...
                 # Build two-level rotation [[b,-c],[c,b]] to zero current entry in v:
-                nm=np.sqrt(abs(v[i][j])**2+abs(v[j][j])**2)
-                b=v[j][j]/nm
-                c=-v[i][j]/nm
+                nm=np.sqrt(abs(v[i,j])**2+abs(v[j,j])**2)
+                b=v[j,j]/nm
+                c=-v[i,j]/nm
                 g=np.identity(d)
-                g[j][j]=b
-                g[i][j]=c
-                g[j][i]=-c
-                g[i][i]=b
+                g[j,j]=b
+                g[i,j]=c
+                g[j,i]=-c
+                g[i,i]=b
                 # Add conjugate transpose of g to output:
                 out.append(np.matrix(g).getH())
                 # Update v:
@@ -278,7 +279,7 @@ def schurindices(n):
 
 # Return some Schur transform matrices, restricted to active rows:
 """
-for n in range(2,8):
+for n in range(2,7):
     plt.matshow(schurmat(n))
     plt.savefig("output{:d}.pdf".format(i))
 """
@@ -287,7 +288,7 @@ for n in range(2,8):
 """
 xdata=[]
 ydata=[]
-max=8
+max=15
 for n in range(2,max+1):
     xdata.append(np.log(n))
     ydata.append(np.log(len(schuralg(n))))
@@ -297,7 +298,7 @@ A=np.vstack([xdata,np.ones(len(xdata))]).T
 m,c=np.linalg.lstsq(A,ydata)[0]
 plt.plot(xdata,ydata,'o',label='log-log sequence lengths',markersize=10)
 plt.plot(xdata,m*xdata+c,'r',label='fitted line: {:0.5f}x+b'.format(m,c))
-plt.axis([1,np.log(max+1),0,8])
+plt.axis([1,np.log(max+1),0,11])
 plt.legend()
 plt.savefig('analysis.png')
 """
