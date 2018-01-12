@@ -276,29 +276,3 @@ def schurindices(n):
        mults[multindex]=mults[multindex]+1
        d=1
     return out
-
-# Return some Schur transform matrices, restricted to active rows:
-"""
-for n in range(2,7):
-    plt.matshow(schurmat(n))
-    plt.savefig("output{:d}.pdf".format(i))
-"""
-
-# Analysis check:
-"""
-xdata=[]
-ydata=[]
-max=15
-for n in range(2,max+1):
-    xdata.append(np.log(n))
-    ydata.append(np.log(len(schuralg(n))))
-xdata=np.array(xdata)
-ydata=np.array(ydata)
-A=np.vstack([xdata,np.ones(len(xdata))]).T
-m,c=np.linalg.lstsq(A,ydata)[0]
-plt.plot(xdata,ydata,'o',label='log-log sequence lengths',markersize=10)
-plt.plot(xdata,m*xdata+c,'r',label='fitted line: {:0.5f}x+b'.format(m,c))
-plt.axis([1,np.log(max+1),0,11])
-plt.legend()
-plt.savefig('analysis.png')
-"""
