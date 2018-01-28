@@ -1,6 +1,7 @@
 """
 William M. Kirby, wmkirby1@gmail.com, 2018
 Computes an efficient quantum algorithm for the Schur transform on n qubits.
+Based on theory developed by Frederick W. Strauch and William M. Kirby.
 
 Main procedures:
 
