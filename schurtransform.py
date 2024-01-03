@@ -7,7 +7,7 @@ Main procedures:
 
 schuralg(n) returns a list of operators whose product is the Schur transform on n qubits.
 The list has length O(n^3).
-List elements have the form [t,op,b], where op is a one- or two-level rotation operator, t is a number of qubits to be tensored in above the operator, and b is a number of qubits to be tensored in below the operator.
+List elements have the form [t,op,b], where op is a one- or two-level rotation operator (numPy array), t is a number of qubits to be tensored in above the operator, and b is a number of qubits to be tensored in below the operator.
 That is, the Schur transform is given by the product of the operations identity(2**t) tensor op tensor identity(2**b) for each element [t,op,b] in schuralg(n).
 
 schurmat(n) returns the Schur transform on n qubits in the matrix form as it will be implemented by the sequence of operations schuralg(n).
@@ -17,49 +17,52 @@ schurmatrestrict(n) returns the Schur transform on n qubits in matrix form, show
 schurindices(n) returns a dict s mapping keys of the form 'j,l,m' to indices corresponding to output entries of the quantum operation implemented by schuralg(n).
 Here j refers to the total spin of some spin-subspace, l is a multiplicity identifier for that spin-subspace, and m is a particular spin-projection.
 Thus 'j,l,m' refers to a specific basis state in the output of the Schur transform as implemented by schuralg(n), and s['j,l,m'] returns the row encoding that basis state.
-
 """
 
 import math
+import torch
 import numpy as np
 import scipy.sparse as sp
-import matplotlib.pyplot as plt
 
 # Returns the lowering operator on a composite system composed of two subsystems: one with dimension d, and the other with dimension 2.
-def lop(d):
+# The parameter sparse determines whether the lowering operators are returned as sparse arrays (using the sciPy sparse matrix support).
+# sparse = True is used for speedups below.
+def lop(d, sparse = False):
     j=(d-1)/2 # Get effective total spin for d-dimensional subsystem.
-    lop1=[] # Lowering operator for d-dimensional subsystem.
-    lop1.append([0 for i in range(d)]) # 0th row of lowering operator is zero.
-    for i in range(d-1):
-        e=[0 for i in range(d)]
-        e[i]=np.sqrt(j*(j+1)-(j-i)*(j-i-1)) # Build (i+1)th row in lowering operator.
-        lop1.append(e)
-    return np.kron(lop1,np.identity(2))+np.kron(np.identity(d),[[0,0],[1,0]]) # Add lowering operator on first subsystem to lowering operator on second subsystem.
+    lop1 = sp.diags([np.sqrt(j*(j+1)-(j-i)*(j-i-1)) for i in range(d-1)], offsets=-1, format='csr')
+    ans = sp.kron(lop1,sp.eye(2,format='csr'))+sp.kron(sp.eye(d),np.array([[0,0],[1,0]])) # Add lowering operator on first subsystem to lowering operator on second subsystem.
+    if sparse:
+        return ans
+    else:
+        return ans.toarray()
+                            
 
 # Returns the Clebsch-Gordan transform that combines a d-dimensional subsystem with a qubit.
 # Input entries (columns) correspond to |m_1,m_2>, where m_1 and m_2 are the subsystem spin-projections.
 # Output entries (rows) correspond to |j_t,m_t>, where j_t is the composite total spin and m_t is the composite spin-projection.
 def cg(d):
     if d==1:
-        return np.identity(2) # If the first subsystem has dimension 1, the CG transform is the identity of dimension 1*2==2.
+        return np.eye(2) # If the first subsystem has dimension 1, the CG transform is the identity of dimension 1*2==2.
     else:
         j=(d-1)/2 # Get effective total spin for d-dimensional subsystem.
-        out=[] # Will contain output matrix.
-        vec=[0 for i in range(2*d)] # Initialize current row vector for first state in spin-(d+1/2) output subsystem.
+        out=np.zeros((2*d,2*d)) # Will contain output matrix.
+        vec=np.zeros(2*d) # Initialize current row vector for first state in spin-(d+1/2) output subsystem.
         vec[0]=1
-        out.append(vec)
-        lopd=lop(d) # Lowering operator for composite of d-dimensional subsystem and qubit.
+        out[0]=vec
+        lopd=lop(d, sparse=True) # Lowering operator for composite of d-dimensional subsystem and qubit.
         for i in range(d): # Compute the remainder of the rows corresponding to composite total spin d+1/2.
-            vec=np.dot(lopd,vec)/np.linalg.norm(np.dot(lopd,vec)) # Compute new row (apply lowering operator to previous row and normalize).
-            out.append(vec)
-        vec=[0 for i in range(2*d)] # Initialize current row vector for first state in spin-(d-1/2) output subsystem.
+            vec  =lopd.dot(vec)
+            vec /= np.linalg.norm(vec) # Compute new row (apply lowering operator to previous row and normalize).
+            out[i+1]=vec
+        vec=np.zeros(2*d) # Initialize current row vector for first state in spin-(d-1/2) output subsystem.
         # Must be a linear combination of input states |d,-1/2> and |d-1,1/2> that is orthogonal to the linear combination of these states in the spin-(d+1/2) subspace.
-        vec[1]=out[1][2]
-        vec[2]=-out[1][1]
-        out.append(vec)
+        vec[1]=out[1,2]
+        vec[2]=-out[1,1]
+        out[d+1]=vec
         for i in range(d-2): # Compute the remainder of the rows corresponding to composite total spin d-1/2.
-            vec=np.dot(lopd,vec)/np.linalg.norm(np.dot(lopd,vec)) # Compute new row (apply lowering operator to previous row and normalize).
-            out.append(vec)
+            vec  = lopd.dot(vec)
+            vec /= np.linalg.norm(vec) # Compute new row (apply lowering operator to previous row and normalize).
+            out[d+2+i]=vec
         return out
 
 # The Schur transform is obtained recursively.
@@ -99,11 +102,14 @@ def cgblocks(n):
         dim=lblock_out # Except in the case n==1.
     # Build operation:
     mat=np.identity(dim) # Initialize output matrix.
+    cgs = {}
+    dims = set(d_in)
+    for dim in dims:
+        cgs[dim]= cg(dim)
     for i in range(k_in): # Iterate over input spin-subspaces.
-        current_cg=cg(d_in[i]) # Get CG transform for current spin-subspace.
-        for j in range(2*d_in[i]): # Iterate over entries in current CG transform.
-            for k in range(2*d_in[i]):
-                mat[2*i*jblock_in+j][2*i*jblock_in+k]=current_cg[j][k] # Insert current CG transform.
+        current_cg=cgs[d_in[i]] # Get CG transform for current spin-subspace.
+        k=len(current_cg)
+        mat[2*i*jblock_in: 2*i*jblock_in+k,2*i*jblock_in:2*i*jblock_in+k]=current_cg # Insert current CG transform.
     return mat
 
 # Permutes the rows so that the output matches the assumptions described above.
@@ -133,20 +139,19 @@ def cgrearrange(n):
                 else:
                     pert.append([2*i*jblock_in+d_in[i]+1+j,(i+1)*jblock_out+j]) # If n==1, put smaller output spin-subspace also in first output L-block.
     # Generate active parts of the permutation matrix that implements the two-cycles represented by pert.
-    mat=[[0 for i in range(dim)] for i in range(dim)] # Initialize output matrix.
+    mat=np.zeros((dim,dim)) # Initialize output matrix.
     for i in pert: # Insert permutations into mat.
-        mat[i[1]][i[0]]=1
+        mat[i[1],i[0]]=1.
     # Fill in the remainder of the permutation matrix.
-    starts=[i[0] for i in pert]
-    ends=[i[1] for i in pert]
+    starts={i[0] for i in pert}
+    ends={i[1] for i in pert}
     for i in range(dim): # Insert main diagonal 1s where possible.
         if (not i in starts) and (not i in ends):
-            mat[i][i]=1
-            ends.append(i)
+            mat[i,i]=1.
+            ends.add(i)
     unused=[i for i in range(dim) if i not in ends]
-    for i in range(dim): # Map remaining input entries to free output entries.
-        if (not 1 in np.array(mat)[:,i]):
-            mat[unused.pop()][i]=1
+    for i in np.where(np.all(mat==0,axis=0))[0]:
+        mat[unused.pop()][i] =1.
     return mat
 
 # Special row swap operator: swaps rows 1 and 4 in an 8x8 matrix.
@@ -154,7 +159,8 @@ def cgrearrange(n):
 spec_swap=np.array([[1,0,0,0,0,0,0,0],[0,0,0,0,1,0,0,0],[0,0,1,0,0,0,0,0],[0,0,0,1,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,1,0],[0,0,0,0,0,0,0,1]])
 
 # Returns a list of quantum operations to performed in order to implement the quantum Schur transform on n qubits.
-# Output is a list whose elements have the form [t,op,b]:
+# Output is a two-tuple (bits, ops) where bits is a rank-two array and ops is a list of tensors.
+# bits and ops have the same length. For any i, set t,b = bits[i] and op = ops[i]. Then:
 # op is a generalized CG transform,
 # t is a number of qubits to be tensored in above op,
 # b is a number of qubits to be tensored in below op.
@@ -171,7 +177,7 @@ def schurops(n):
         if math.ceil(np.log2(n))==np.log2(n): # If n is a power of 2...
             for elem in prev:
                 elem[0]=elem[0]+2 # Add two new qubits above each operation in previous Schur transform.
-            prev.insert(0,[0,spec_swap,n-6+np.log2(len(cgrearrange(n-1)))])#spec_swap
+            prev.insert(0,[0,spec_swap,n-6+int(np.log2(len(cgrearrange(n-1))))])#spec_swap
             prev.insert(0,[n-3,np.dot(cgrearrange(n-1),cgblocks(n-1)),0])
         else:
             prev.insert(0,[n-3,np.dot(cgrearrange(n-1),cgblocks(n-1)),0])
@@ -181,32 +187,31 @@ def schurops(n):
 # Output is a list of matrices, all one- or two-level rotations, whose product is u.
 def givens(u):
     d=len(u) # Dimension of target matrix.
-    v=u # Working matrix.
+    v=u.copy() # Working matrix.
     out=[] # Will contain output list.
     # Get two-level rotations to reduce v to diagonal:
-    for i in range(1,d): # Iterate over lower triangle in v.
-        for j in range(i):
-            if not v[i,j]==0: # If current entry in v is not already zero...
-                # Build two-level rotation [[b,-c],[c,b]] to zero current entry in v:
-                nm=np.sqrt(abs(v[i,j])**2+abs(v[j,j])**2)
-                b=v[j,j]/nm
-                c=-v[i,j]/nm
-                g=np.identity(d)
-                g[j,j]=b
-                g[i,j]=c
-                g[j,i]=-c
-                g[i,i]=b
-                # Add conjugate transpose of g to output:
-                out.append(np.matrix(g).getH())
-                # Update v:
-                v=np.dot(g,v)
-    # Get one-level phase rotations to reduce v to identity:
-    for i in range(d):
-        if not v[i][i]==1:
+    indices = np.tril_indices(v.shape[0], k=-1)
+    for (i,j) in zip(indices[0],indices[1]): # Iterate over non-zero entries of lower triangle in v.
+        if not np.isclose(v[i,j],0):
+            # Build two-level rotation [[b,-c],[c,b]] to zero current entry in v:
+            nm=np.sqrt(abs(v[i,j])**2+abs(v[j,j])**2)
+            b=v[j,j]/nm
+            c=-v[i,j]/nm
             g=np.identity(d)
-            g[i][i]=v[i][i]
+            g[j,j]=b
+            g[i,j]=c
+            g[j,i]=-c
+            g[i,i]=b
+            # Add conjugate transpose of g to output:
             out.append(np.matrix(g).getH())
+            # Update v:
             v=np.dot(g,v)
+    # Get one-level phase rotations to reduce v to identity:
+    for i, elem in enumerate(np.diag(v)):
+        if not np.isclose(elem,1):
+            diagonals = np.ones(d)
+            diagonals[i] = elem
+            out.append(np.matrix(np.diag(diagonals)).getH())
     return out
 
 # MAIN PROCEDURE
@@ -221,35 +226,32 @@ def givens(u):
 def schuralg(n):
     inlist=schurops(n)
     outlist=[]
-    while inlist:
-        next=inlist.pop()
-        ngivens=givens(next[1])
-        while ngivens:
-            outlist.insert(0,[next[0],ngivens.pop(),next[2]])
+    for bit1, op, bit2 in inlist:
+        new_givens = givens(op)
+        outlist+= [[bit1, g, bit2] for g in new_givens]
     return outlist
 
+
 # Returns the Schur transform matrix in the form that will be implemented by the quantum algorithm returned by schuralg(n).
+# Performs the matmul using PyTorch, then converts back to numpy
+          
 def schurmat(n):
     ops=schurops(n)
-    mat=ops.pop()
-    mat=np.kron(np.kron(np.identity(2**mat[0]),mat[1]),np.identity(2**mat[2]))
-    while ops:
-        next=ops.pop()
-        next=np.kron(np.kron(np.identity(2**next[0]),next[1]),np.identity(2**next[2]))
-        mat=np.dot(next,mat)
-    return mat
+    dim = 2**(ops[0][0]+ops[0][2])*len(ops[0][1])
+    ans = torch.eye(dim).to_sparse()
+    for bit1, op, bit2 in reversed(ops):
+      mat = torch.kron(torch.kron(torch.eye(2**bit1),torch.tensor(op)),torch.eye(2**bit2)).to_sparse()
+      ans = torch.sparse.mm(mat.double(),ans.double())
+
+    #Convert to numpy array, remove gradient information, and convert to CPU storage.
+    return ans.to_dense().detach().cpu().numpy()
 
 # Returns the computational part of the Schur transform matrix: i.e. the first 2^n columns and the rows they map to.
 def schurmatrestrict(n):
     mat=schurmat(n)
-    mat=[mat[i][0:2**n] for i in range(len(mat))]
-    i=0
-    while i<len(mat):
-        if not np.any(mat[i]):
-            del mat[i]
-        else:
-            i=i+1
-    return mat
+    mat=mat[...,:2**n]
+    non_nulls = np.any(mat!=0,axis=1)
+    return mat[non_nulls]
 
 # Returns a dict s mapping keys of the form 'j,l,m' to indices corresponding to output entries in the quantum operation implemented by schuralg(n).
 # Here j refers to the total spin of some spin-subspace, l is a multiplicity identifier for that spin-subspace, and m is a particular spin-projection.
@@ -258,7 +260,7 @@ def schurmatrestrict(n):
 def schurindices(n):
     out={}
     mat=schurmat(n)
-    mat=[mat[i][0:2**n] for i in range(len(mat))]
+    mat=mat[:len(mat),:2**n]
     activerows=[] # Stores indices of active rows.
     mults=[0 for i in range(math.floor(n/2)+1)] # Stores current values of multiplicity identifiers.
     for i in range(len(mat)):
